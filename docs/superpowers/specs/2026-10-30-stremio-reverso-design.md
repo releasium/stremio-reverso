@@ -20,6 +20,7 @@ A small Windows tray app that sits over the **Stremio desktop app**. When you ho
 - **Prerequisite:** the .NET 8 SDK (`winget install Microsoft.DotNet.SDK.8`). It isn't installed yet.
 
 ## Architecture
+The pure logic (`Core/*`, `Reverso/*`, and the HoverWatcher decisions as `HoverLogic`) lives in a separate `net8.0` class library, `StremioReverso.Core`, so the tests don't need Windows APIs. The tree below is the logical layout.
 ```
 src/StremioReverso/
   App.xaml(.cs)            tray icon (Exit), starts the HoverWatcher
@@ -45,17 +46,16 @@ tests/StremioReverso.Tests/  xUnit: HitTest, WordNormalizer, ReversoParser (save
 3. **Paused.** The cursor is on a line → `Playback.Pause()` (Space). Re-OCR the now-frozen frame for a clean result, then show **WordOverlay**: a highlight box per word and a `⇄` handle after each line. The overlay is only on screen while paused, so it never blocks Stremio during playback.
    - Hover a word box (150 ms) → TranslationPopup with that word's Reverso Context result.
    - Hover `⇄` → TranslationPopup with the whole line's translation.
-   - Clicking the popup pins it; Esc or the popup's ✕ closes it.
+   - Clicking the popup pins it; the popup's ✕ closes it. (Esc isn't used: the overlay windows don't take keyboard focus, and Esc means something to Stremio.)
 4. **Resume.** The cursor leaves the subtitle zone (with 300 ms grace) and no popup is pinned → hide the overlays and `Playback.Resume()`, but only if we paused and Stremio is still foreground. If you click Stremio or press a key while paused, the app forgets that it paused, so it won't toggle playback against you.
 
 Pause and resume work by sending Space, which toggles play/pause in Stremio's player. The overlay windows are no-activate, so Stremio keeps keyboard focus.
 
 ## Reverso
 Both endpoints are unofficial, so they're isolated behind `ReversoClient`:
-- Word: Reverso Context (`context.reverso.net/bst-query-service`), giving translations + example pairs.
-- Line: Reverso Translation (`api.reverso.net/translate/v1/translation`), giving the translated text.
-- In-memory LRU cache (500 entries) and a 5 s timeout.
-- The exact request formats get confirmed against the live sites in the plan's first task and saved as test fixtures.
+- Word: GET the Reverso Context page `https://context.reverso.net/translation/english-ukrainian/<word>` and parse it with AngleSharp. Translations come from `#translations-content .display-term`; examples from `#examples-content .example:not(.blocked)`, using `.src .text` / `.trg .text` with `<em>` highlights kept. (The JSON `bst-query-service` sits behind a Cloudflare challenge; the HTML page doesn't, as checked on 2026-10-31.)
+- Line: POST `https://api.reverso.net/translate/v1/translation` with `{"format":"text","from":"eng","to":"ukr","input":…}` and read `translation[]`. (Its `contextResults` field is null for eng→ukr, so it isn't useful for word lookups.)
+- In-memory LRU cache (500 entries) and a 5 s timeout. Real responses are saved as test fixtures.
 
 ## Error handling
 - Reverso fails or the response can't be parsed → the popup says "Couldn't load translation". The **Open in Reverso** link (`https://context.reverso.net/translation/english-ukrainian/<text>`, opened in the default browser) is in every popup.
