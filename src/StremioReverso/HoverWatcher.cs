@@ -41,6 +41,7 @@ internal sealed class HoverWatcher
         };
         _overlay.WordHovered += OnWordHovered;
         _overlay.LineHovered += OnLineHovered;
+        _overlay.Selected += (text, box) => _popup.ShowPage(text, ReversoUrls.ForPhrase(text), box);
         _popup.PinnedChanged += pinned => _logic.Pinned = pinned;
     }
 
