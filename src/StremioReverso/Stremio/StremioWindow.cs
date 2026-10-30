@@ -34,4 +34,9 @@ internal sealed class StremioWindow
 
     public bool IsForeground =>
         Handle != IntPtr.Zero && Native.GetAncestor(Native.GetForegroundWindow(), Native.GA_ROOT) == _hwnd;
+
+    public void Activate()
+    {
+        if (Handle != IntPtr.Zero) Native.SetForegroundWindow(_hwnd);
+    }
 }

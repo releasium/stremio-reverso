@@ -25,13 +25,6 @@ public class TextAndGeometryTests
         Assert.Equal(expected, WordNormalizer.IsMeaningful(text));
 
     [Fact]
-    public void EmSplit()
-    {
-        var parts = EmText.Split("won't <em>bother</em> you");
-        Assert.Equal(new[] { ("won't ", false), ("bother", true), (" you", false) }, parts);
-    }
-
-    [Fact]
     public void UnionAndZone()
     {
         var u = Box.Union(new[] { new Box(10, 10, 10, 10), new Box(30, 5, 5, 30) });

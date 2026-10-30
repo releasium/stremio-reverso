@@ -30,5 +30,8 @@ internal static class WindowPlacement
     public static bool ContainsCursor(Window w, double x, double y) =>
         w.IsVisible && Native.GetWindowRect(Hwnd(w), out var r) && Native.ToBox(r).Contains(x, y);
 
+    public static bool IsForeground(Window w) =>
+        w.IsVisible && Native.GetAncestor(Native.GetForegroundWindow(), Native.GA_ROOT) == Hwnd(w);
+
     static IntPtr Hwnd(Window w) => new WindowInteropHelper(w).EnsureHandle();
 }

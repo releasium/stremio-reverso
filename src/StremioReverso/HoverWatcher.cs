@@ -11,20 +11,18 @@ namespace StremioReverso;
 /// subtitle zone, and carries out the actions HoverLogic returns.
 internal sealed class HoverWatcher
 {
+    static readonly TimeSpan ScanInterval = TimeSpan.FromMilliseconds(250);
+    static readonly TimeSpan ScanFreshness = TimeSpan.FromMilliseconds(700);
+
     readonly StremioWindow _stremio = new();
     readonly SubtitleOcr _ocr = new();
-    readonly ReversoClient _reverso = new(ReversoClient.CreateHttpClient());
     readonly HoverLogic _logic = new();
     readonly WordOverlay _overlay = new();
     readonly TranslationPopup _popup = new();
     readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(33) };
-    static readonly TimeSpan ScanInterval = TimeSpan.FromMilliseconds(250);
-    static readonly TimeSpan ScanFreshness = TimeSpan.FromMilliseconds(700);
     IReadOnlyList<OcrLine> _lines = Array.Empty<OcrLine>();
-    DateTime _lastScan;
+    DateTime _lastScan, _ignoreInputUntil;
     bool _scanning, _freezing;
-    DateTime _ignoreInputUntil;
-    CancellationTokenSource? _lookup;
     string _status = "";
 
     public event Action<string>? StatusChanged;
@@ -51,6 +49,8 @@ internal sealed class HoverWatcher
         SetStatus(bounds is null ? "Stremio Reverso: waiting for Stremio" : "Stremio Reverso: hover subtitles");
 
         bool foreground = bounds != null && _stremio.IsForeground;
+        // A click inside the popup's browser can take focus; that still counts as watching Stremio.
+        bool watching = foreground || (bounds != null && WindowPlacement.IsForeground(_popup));
         bool overUi = WindowPlacement.ContainsCursor(_overlay, p.X, p.Y) || WindowPlacement.ContainsCursor(_popup, p.X, p.Y);
         bool inZone = overUi || (foreground && Box.SubtitleZone(bounds!.Value).Contains(p.X, p.Y));
 
@@ -63,7 +63,7 @@ internal sealed class HoverWatcher
             _ = ScanAsync(Box.SubtitleZone(bounds!.Value));
         var lines = now - _lastScan <= ScanFreshness ? _lines : Array.Empty<OcrLine>();
 
-        Act(_logic.OnTick(now, inZone, foreground, p.X, p.Y, lines));
+        Act(_logic.OnTick(now, inZone, watching, p.X, p.Y, lines));
         if (_logic.IsPaused && !_overlay.IsVisible && !_freezing && bounds is { } b)
             _ = ShowOverlayAsync(Box.SubtitleZone(b));
     }
@@ -112,42 +112,16 @@ internal sealed class HoverWatcher
         finally { _freezing = false; }
     }
 
-    async void OnWordHovered(OcrLine line, OcrWord word)
+    void OnWordHovered(OcrLine line, OcrWord word)
     {
-        try
-        {
-            var query = WordNormalizer.Normalize(word.Text);
-            if (query is null) return;
-            var ct = NewLookup();
-            _popup.ShowLoading(query, word.Box);
-            var result = await _reverso.GetWordAsync(query, ct);
-            if (!ct.IsCancellationRequested) _popup.ShowWord(query, result, word.Box);
-        }
-        catch (Exception e) { Log.Error("word", e); }
+        var query = WordNormalizer.Normalize(word.Text);
+        if (query is not null) _popup.ShowPage(query, ReversoUrls.ContextPage(query), word.Box);
     }
 
-    async void OnLineHovered(OcrLine line)
-    {
-        try
-        {
-            var ct = NewLookup();
-            _popup.ShowLoading(line.Text, line.Box);
-            var result = await _reverso.TranslateLineAsync(line.Text, ct);
-            if (!ct.IsCancellationRequested) _popup.ShowLine(line.Text, result, line.Box);
-        }
-        catch (Exception e) { Log.Error("line", e); }
-    }
-
-    CancellationToken NewLookup()
-    {
-        _lookup?.Cancel();
-        _lookup = new CancellationTokenSource();
-        return _lookup.Token;
-    }
+    void OnLineHovered(OcrLine line) => _popup.ShowPage(line.Text, ReversoUrls.TranslationPage(line.Text), line.Box);
 
     void HideUi()
     {
-        _lookup?.Cancel();
         _overlay.Hide();
         _popup.HidePopup();
     }
@@ -155,6 +129,7 @@ internal sealed class HoverWatcher
     void TogglePlayback()
     {
         _ignoreInputUntil = DateTime.UtcNow.AddMilliseconds(300);
+        if (!_stremio.IsForeground) _stremio.Activate();
         Playback.TogglePlayPause();
     }
 
