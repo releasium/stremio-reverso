@@ -6,7 +6,7 @@ public enum HoverAction { None, Pause, Resume, Dismiss }
 /// and the latest background OCR of the subtitle zone.
 public sealed class HoverLogic
 {
-    public static readonly TimeSpan LeaveGrace = TimeSpan.FromMilliseconds(300);
+    public static readonly TimeSpan LeaveGrace = TimeSpan.FromMilliseconds(150);
 
     bool _paused, _left;
     DateTime _leftAt;
@@ -15,7 +15,8 @@ public sealed class HoverLogic
     public bool Pinned { get; set; }
     public bool IsPaused => _paused;
 
-    /// inZone: the cursor is over our overlay/popup, or Stremio is foreground and the cursor is in its subtitle zone.
+    /// inZone: while playing, Stremio is foreground and the cursor is in its subtitle zone;
+    /// while paused, the cursor is on the subtitle text or inside the popup.
     /// lines: the most recent OCR of the subtitle zone (empty when stale or unknown).
     public HoverAction OnTick(DateTime now, bool inZone, bool stremioForeground, double x, double y, IReadOnlyList<OcrLine> lines)
     {

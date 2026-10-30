@@ -22,6 +22,7 @@ internal sealed class HoverWatcher
     readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(33) };
     IReadOnlyList<OcrLine> _lines = Array.Empty<OcrLine>();
     DateTime _lastScan, _ignoreInputUntil;
+    Box _pausedText; // screen area of the subtitle text while paused
     bool _scanning, _freezing;
     string _status = "";
 
@@ -57,7 +58,10 @@ internal sealed class HoverWatcher
         // The popup lives only while the cursor is on its word or inside it (or it's pinned).
         if (_popup.IsVisible && !_popup.IsPinned && !overPopup && !_popup.Anchor.Contains(p.X, p.Y, 2))
             _popup.HidePopup();
-        bool inZone = overUi || (foreground && Box.SubtitleZone(bounds!.Value).Contains(p.X, p.Y));
+        // Playing: anywhere in the subtitle zone. Paused: only on the subtitle text (or in the popup).
+        bool inZone = _logic.IsPaused
+            ? overUi || _pausedText.Contains(p.X, p.Y, 12)
+            : foreground && Box.SubtitleZone(bounds!.Value).Contains(p.X, p.Y);
 
         if (_logic.IsPaused && !overUi && now > _ignoreInputUntil &&
             (Native.IsDown(Native.VK_LBUTTON) || Native.IsDown(Native.VK_RBUTTON) || Native.IsDown(Native.VK_SPACE)))
@@ -68,7 +72,9 @@ internal sealed class HoverWatcher
             _ = ScanAsync(Box.SubtitleZone(bounds!.Value));
         var lines = now - _lastScan <= ScanFreshness ? _lines : Array.Empty<OcrLine>();
 
-        Act(_logic.OnTick(now, inZone, watching, p.X, p.Y, lines));
+        var action = _logic.OnTick(now, inZone, watching, p.X, p.Y, lines);
+        if (action == HoverAction.Pause) _pausedText = Box.Union(lines.Select(l => l.Box));
+        Act(action);
         if (_logic.IsPaused && !_overlay.IsVisible && !_freezing && bounds is { } b)
             _ = ShowOverlayAsync(Box.SubtitleZone(b));
     }
@@ -111,7 +117,9 @@ internal sealed class HoverWatcher
             var frozen = await _ocr.RecognizeAsync(zone);
             if (!_logic.IsPaused) return;
             Act(_logic.OnFrozenFrame(frozen));
-            if (_logic.IsPaused) _overlay.ShowLines(frozen);
+            if (!_logic.IsPaused) return;
+            _pausedText = Box.Union(frozen.Select(l => l.Box));
+            _overlay.ShowLines(frozen);
         }
         catch (Exception e) { Log.Error("freeze", e); }
         finally { _freezing = false; }

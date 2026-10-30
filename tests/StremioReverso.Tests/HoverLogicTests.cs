@@ -42,8 +42,8 @@ public class HoverLogicTests
         var h = Paused();
         Assert.Equal(HoverAction.None, h.OnTick(Ms(500), true, true, 150, 815, Lines));
         Assert.Equal(HoverAction.None, h.OnTick(Ms(600), false, true, 150, 100, None));
-        Assert.Equal(HoverAction.None, h.OnTick(Ms(800), false, true, 150, 100, None));
-        Assert.Equal(HoverAction.Resume, h.OnTick(Ms(910), false, true, 150, 100, None));
+        Assert.Equal(HoverAction.None, h.OnTick(Ms(700), false, true, 150, 100, None));
+        Assert.Equal(HoverAction.Resume, h.OnTick(Ms(760), false, true, 150, 100, None));
         Assert.False(h.IsPaused);
     }
 
@@ -54,8 +54,8 @@ public class HoverLogicTests
         h.OnTick(Ms(600), false, true, 150, 100, None);
         h.OnTick(Ms(700), true, true, 150, 815, None);
         Assert.Equal(HoverAction.None, h.OnTick(Ms(1000), false, true, 150, 100, None));
-        Assert.Equal(HoverAction.None, h.OnTick(Ms(1200), false, true, 150, 100, None));
-        Assert.Equal(HoverAction.Resume, h.OnTick(Ms(1300), false, true, 150, 100, None));
+        Assert.Equal(HoverAction.None, h.OnTick(Ms(1100), false, true, 150, 100, None));
+        Assert.Equal(HoverAction.Resume, h.OnTick(Ms(1160), false, true, 150, 100, None));
     }
 
     [Fact]
