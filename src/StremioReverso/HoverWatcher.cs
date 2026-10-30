@@ -22,7 +22,11 @@ internal sealed class HoverWatcher
     readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(33) };
     IReadOnlyList<OcrLine> _lines = Array.Empty<OcrLine>();
     DateTime _lastScan, _ignoreInputUntil;
-    Box _pausedText; // screen area of the subtitle text while paused
+    static readonly TimeSpan RefreshInterval = TimeSpan.FromMilliseconds(300);
+    readonly MouseShield _shield = new();
+    Box _pausedText;  // everywhere the subtitle text has been while paused
+    Box _overlayText; // where the overlay's word boxes currently are
+    DateTime _lastFreeze;
     bool _scanning, _freezing;
     string _status = "";
 
@@ -73,10 +77,18 @@ internal sealed class HoverWatcher
         var lines = now - _lastScan <= ScanFreshness ? _lines : Array.Empty<OcrLine>();
 
         var action = _logic.OnTick(now, inZone, watching, p.X, p.Y, lines);
-        if (action == HoverAction.Pause) _pausedText = Box.Union(lines.Select(l => l.Box));
+        if (action == HoverAction.Pause && bounds is { } window)
+        {
+            _pausedText = Box.Union(lines.Select(l => l.Box));
+            _shield.Cover(window);
+        }
         Act(action);
-        if (_logic.IsPaused && !_overlay.IsVisible && !_freezing && bounds is { } b)
-            _ = ShowOverlayAsync(Box.SubtitleZone(b));
+
+        // While paused, keep re-reading the subtitle: Stremio may still move it as its controls hide.
+        // Skipped while the popup is open, since it can cover part of the subtitle.
+        if (_logic.IsPaused && !_freezing && bounds is { } b &&
+            (!_overlay.IsVisible || (!_popup.IsVisible && now - _lastFreeze >= RefreshInterval)))
+            _ = RefreshPausedAsync(Box.SubtitleZone(b));
     }
 
     void Act(HoverAction action)
@@ -108,22 +120,37 @@ internal sealed class HoverWatcher
         finally { _scanning = false; }
     }
 
-    async Task ShowOverlayAsync(Box zone)
+    async Task RefreshPausedAsync(Box zone)
     {
         _freezing = true;
         try
         {
-            await Task.Delay(120); // let the paused frame settle, then read it cleanly
+            bool first = !_overlay.IsVisible;
+            if (first) await Task.Delay(120); // let the paused frame settle, then read it cleanly
             var frozen = await _ocr.RecognizeAsync(zone);
             if (!_logic.IsPaused) return;
-            Act(_logic.OnFrozenFrame(frozen));
-            if (!_logic.IsPaused) return;
-            _pausedText = Box.Union(frozen.Select(l => l.Box));
-            _overlay.ShowLines(frozen);
+            if (first) Act(_logic.OnFrozenFrame(frozen));
+            if (!_logic.IsPaused || frozen.Count == 0) return;
+
+            var text = Box.Union(frozen.Select(l => l.Box));
+            // Grow, never shrink: if the subtitle drops back down, the cursor where it used to be still counts.
+            _pausedText = Box.Union(new[] { _pausedText, text });
+            if (first || Moved(text, _overlayText))
+            {
+                _overlayText = text;
+                _overlay.ShowLines(frozen);
+            }
         }
         catch (Exception e) { Log.Error("freeze", e); }
-        finally { _freezing = false; }
+        finally
+        {
+            _freezing = false;
+            _lastFreeze = DateTime.UtcNow;
+        }
     }
+
+    static bool Moved(Box a, Box b) =>
+        Math.Abs(a.X - b.X) > 3 || Math.Abs(a.Y - b.Y) > 3 || Math.Abs(a.W - b.W) > 3 || Math.Abs(a.H - b.H) > 3;
 
     void OnWordHovered(OcrLine line, OcrWord word)
     {
@@ -135,6 +162,7 @@ internal sealed class HoverWatcher
 
     void HideUi()
     {
+        _shield.Hide();
         _overlay.Hide();
         _popup.HidePopup();
     }

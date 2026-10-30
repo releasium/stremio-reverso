@@ -1,0 +1,6 @@
+<Window x:Class="StremioReverso.UI.MouseShield"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None" AllowsTransparency="True" Background="#01000000"
+        ShowInTaskbar="False" ShowActivated="False" Topmost="True" ResizeMode="NoResize"
+        Left="-10000" Top="-10000" Width="10" Height="10" />
