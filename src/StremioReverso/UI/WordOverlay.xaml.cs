@@ -12,7 +12,8 @@ namespace StremioReverso.UI;
 public partial class WordOverlay : Window
 {
     public event Action<OcrLine, OcrWord>? WordHovered;
-    public event Action<OcrLine>? LineHovered;
+    /// A line's ⇄ handle was hovered; the box covers the line and its handle.
+    public event Action<OcrLine, Box>? LineHovered;
     /// Words picked by click or drag (reading order, joined by spaces) and their screen box.
     public event Action<string, Box>? Selected;
 
@@ -59,7 +60,8 @@ public partial class WordOverlay : Window
                 _words.Add((word, border));
             }
             var handle = new Box(line.Box.Right + 8, line.Box.Y + line.Box.H / 2 - 12, 28, 24);
-            AddTarget(handle, area, s, "⇄", () => LineHovered?.Invoke(line));
+            var lineAndHandle = Box.Union(new[] { line.Box, handle });
+            AddTarget(handle, area, s, "⇄", () => LineHovered?.Invoke(line, lineAndHandle));
         }
     }
 

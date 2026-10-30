@@ -159,7 +159,8 @@ internal sealed class HoverWatcher
         if (query is not null) _popup.ShowPage(query, ReversoUrls.ContextPage(query), word.Box);
     }
 
-    void OnLineHovered(OcrLine line) => _popup.ShowPage(line.Text, ReversoUrls.TranslationPage(line.Text), line.Box);
+    // Anchored to the line plus its ⇄ handle, so the popup stays while the cursor is on the handle.
+    void OnLineHovered(OcrLine line, Box anchor) => _popup.ShowPage(line.Text, ReversoUrls.TranslationPage(line.Text), anchor);
 
     void HideUi()
     {
