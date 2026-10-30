@@ -4,6 +4,7 @@ Learn English while you watch: a small Windows tray app that sits over the **Str
 
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue)
 ![.NET](https://img.shields.io/badge/.NET-8.0-512BD4)
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
 ## Features
 
@@ -105,3 +106,7 @@ Screen capture and OCR run locally on your PC. Nothing is sent anywhere except t
 - Only English → Ukrainian (set in `ReversoUrls`).
 - If you have paused the video yourself, resting the cursor on a subtitle sends <kbd>Space</kbd> and resumes it.
 - Not affiliated with Stremio or Reverso.
+
+## License
+
+[MIT](LICENSE)
