@@ -1,85 +1,61 @@
 namespace StremioReverso.Core;
 
-public enum HoverAction { None, StartOcr, Pause, Resume, Dismiss }
+public enum HoverAction { None, Pause, Resume, Dismiss }
 
-/// Decides when to OCR, pause, and resume. Pure: the caller feeds it time, cursor and window state.
+/// Decides when to pause and resume. Pure: the caller feeds it time, cursor, window state,
+/// and the latest background OCR of the subtitle zone.
 public sealed class HoverLogic
 {
-    public static readonly TimeSpan Dwell = TimeSpan.FromMilliseconds(250);
-    public static readonly TimeSpan Cooldown = TimeSpan.FromSeconds(1);
     public static readonly TimeSpan LeaveGrace = TimeSpan.FromMilliseconds(300);
-    public const double StillTolerance = 4;
 
-    enum Phase { Idle, Dwelling, Recognizing, Paused }
-
-    Phase _phase = Phase.Idle;
-    double _lastX, _lastY;
-    DateTime _stillSince, _cooldownUntil, _leftAt;
-    bool _left;
+    bool _paused, _left;
+    DateTime _leftAt;
 
     public bool PausedByUs { get; private set; }
     public bool Pinned { get; set; }
-    public bool IsPaused => _phase == Phase.Paused;
+    public bool IsPaused => _paused;
 
     /// inZone: the cursor is over our overlay/popup, or Stremio is foreground and the cursor is in its subtitle zone.
-    public HoverAction OnTick(DateTime now, bool inZone, bool stremioForeground, double x, double y)
+    /// lines: the most recent OCR of the subtitle zone (empty when stale or unknown).
+    public HoverAction OnTick(DateTime now, bool inZone, bool stremioForeground, double x, double y, IReadOnlyList<OcrLine> lines)
     {
-        switch (_phase)
+        if (!_paused)
         {
-            case Phase.Paused:
-                if (inZone || Pinned) { _left = false; return HoverAction.None; }
-                if (!_left) { _left = true; _leftAt = now; }
-                if (now - _leftAt < LeaveGrace) return HoverAction.None;
-                var resume = PausedByUs && stremioForeground;
-                Reset(now, cooldown: false);
-                return resume ? HoverAction.Resume : HoverAction.Dismiss;
-
-            case Phase.Recognizing:
-                return HoverAction.None;
-
-            default:
-                if (!inZone || now < _cooldownUntil) { _phase = Phase.Idle; return HoverAction.None; }
-                if (_phase == Phase.Idle || Math.Abs(x - _lastX) > StillTolerance || Math.Abs(y - _lastY) > StillTolerance)
-                {
-                    _phase = Phase.Dwelling;
-                    _stillSince = now;
-                    _lastX = x;
-                    _lastY = y;
-                    return HoverAction.None;
-                }
-                if (now - _stillSince < Dwell) return HoverAction.None;
-                _phase = Phase.Recognizing;
-                return HoverAction.StartOcr;
+            if (!inZone || HitTest.LineAt(lines, x, y) is null) return HoverAction.None;
+            _paused = true;
+            PausedByUs = true;
+            _left = false;
+            return HoverAction.Pause;
         }
+
+        if (inZone || Pinned) { _left = false; return HoverAction.None; }
+        if (!_left) { _left = true; _leftAt = now; }
+        if (now - _leftAt < LeaveGrace) return HoverAction.None;
+        var resume = PausedByUs && stremioForeground;
+        Reset();
+        return resume ? HoverAction.Resume : HoverAction.Dismiss;
     }
 
-    public HoverAction OnOcrResult(DateTime now, IReadOnlyList<OcrLine> lines, double x, double y)
+    /// OCR of the frame after pausing. No text means the cached lines were stale: undo the pause.
+    public HoverAction OnFrozenFrame(IReadOnlyList<OcrLine> lines)
     {
-        if (_phase != Phase.Recognizing) return HoverAction.None;
-        if (HitTest.LineAt(lines, x, y) is null) { Reset(now, cooldown: true); return HoverAction.None; }
-        _phase = Phase.Paused;
-        PausedByUs = true;
-        _left = false;
-        return HoverAction.Pause;
-    }
-
-    public void OnOcrFailed(DateTime now)
-    {
-        if (_phase == Phase.Recognizing) Reset(now, cooldown: true);
+        if (!_paused || lines.Count > 0) return HoverAction.None;
+        var resume = PausedByUs;
+        Reset();
+        return resume ? HoverAction.Resume : HoverAction.Dismiss;
     }
 
     /// The user clicked or pressed a key in Stremio while we were paused, so playback is theirs again.
     public void OnUserInput()
     {
-        if (_phase == Phase.Paused) PausedByUs = false;
+        if (_paused) PausedByUs = false;
     }
 
-    void Reset(DateTime now, bool cooldown)
+    void Reset()
     {
-        _phase = Phase.Idle;
+        _paused = false;
         PausedByUs = false;
         Pinned = false;
         _left = false;
-        if (cooldown) _cooldownUntil = now + Cooldown;
     }
 }

@@ -7,7 +7,8 @@ using StremioReverso.Win32;
 
 namespace StremioReverso;
 
-/// Glues the OS to HoverLogic: polls cursor/window 30×/s and carries out the actions it returns.
+/// Glues the OS to HoverLogic: polls cursor/window 30×/s, keeps a background OCR of the
+/// subtitle zone, and carries out the actions HoverLogic returns.
 internal sealed class HoverWatcher
 {
     readonly StremioWindow _stremio = new();
@@ -17,6 +18,11 @@ internal sealed class HoverWatcher
     readonly WordOverlay _overlay = new();
     readonly TranslationPopup _popup = new();
     readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(33) };
+    static readonly TimeSpan ScanInterval = TimeSpan.FromMilliseconds(250);
+    static readonly TimeSpan ScanFreshness = TimeSpan.FromMilliseconds(700);
+    IReadOnlyList<OcrLine> _lines = Array.Empty<OcrLine>();
+    DateTime _lastScan;
+    bool _scanning, _freezing;
     DateTime _ignoreInputUntil;
     CancellationTokenSource? _lookup;
     string _status = "";
@@ -52,11 +58,22 @@ internal sealed class HoverWatcher
             (Native.IsDown(Native.VK_LBUTTON) || Native.IsDown(Native.VK_RBUTTON) || Native.IsDown(Native.VK_SPACE)))
             _logic.OnUserInput();
 
-        switch (_logic.OnTick(now, inZone, foreground, p.X, p.Y))
+        // Keep a fresh OCR of the subtitle zone while Stremio plays, so hovering a line pauses at once.
+        if (foreground && !_logic.IsPaused && !_scanning && now - _lastScan >= ScanInterval)
+            _ = ScanAsync(Box.SubtitleZone(bounds!.Value));
+        var lines = now - _lastScan <= ScanFreshness ? _lines : Array.Empty<OcrLine>();
+
+        Act(_logic.OnTick(now, inZone, foreground, p.X, p.Y, lines));
+        if (_logic.IsPaused && !_overlay.IsVisible && !_freezing && bounds is { } b)
+            _ = ShowOverlayAsync(Box.SubtitleZone(b));
+    }
+
+    void Act(HoverAction action)
+    {
+        switch (action)
         {
-            case HoverAction.StartOcr:
-                if (bounds is { } b) _ = RecognizeAsync(Box.SubtitleZone(b));
-                else _logic.OnOcrFailed(now);
+            case HoverAction.Pause:
+                TogglePlayback();
                 break;
             case HoverAction.Resume:
                 HideUi();
@@ -68,23 +85,31 @@ internal sealed class HoverWatcher
         }
     }
 
-    async Task RecognizeAsync(Box zone)
+    async Task ScanAsync(Box zone)
     {
+        _scanning = true;
         try
         {
-            var lines = await _ocr.RecognizeAsync(zone);
-            Native.GetCursorPos(out var p);
-            if (_logic.OnOcrResult(DateTime.UtcNow, lines, p.X, p.Y) != HoverAction.Pause) return;
-            TogglePlayback();
-            await Task.Delay(150); // let the paused frame settle, then read it cleanly
-            var frozen = await _ocr.RecognizeAsync(zone);
-            if (_logic.IsPaused) _overlay.ShowLines(frozen.Count > 0 ? frozen : lines);
+            _lines = await _ocr.RecognizeAsync(zone);
+            _lastScan = DateTime.UtcNow;
         }
-        catch (Exception e)
+        catch (Exception e) { Log.Error("scan", e); }
+        finally { _scanning = false; }
+    }
+
+    async Task ShowOverlayAsync(Box zone)
+    {
+        _freezing = true;
+        try
         {
-            Log.Error("ocr", e);
-            _logic.OnOcrFailed(DateTime.UtcNow);
+            await Task.Delay(120); // let the paused frame settle, then read it cleanly
+            var frozen = await _ocr.RecognizeAsync(zone);
+            if (!_logic.IsPaused) return;
+            Act(_logic.OnFrozenFrame(frozen));
+            if (_logic.IsPaused) _overlay.ShowLines(frozen);
         }
+        catch (Exception e) { Log.Error("freeze", e); }
+        finally { _freezing = false; }
     }
 
     async void OnWordHovered(OcrLine line, OcrWord word)
