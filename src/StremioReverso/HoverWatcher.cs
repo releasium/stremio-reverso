@@ -51,7 +51,12 @@ internal sealed class HoverWatcher
         bool foreground = bounds != null && _stremio.IsForeground;
         // A click inside the popup's browser can take focus; that still counts as watching Stremio.
         bool watching = foreground || (bounds != null && WindowPlacement.IsForeground(_popup));
-        bool overUi = WindowPlacement.ContainsCursor(_overlay, p.X, p.Y) || WindowPlacement.ContainsCursor(_popup, p.X, p.Y);
+        bool overPopup = WindowPlacement.ContainsCursor(_popup, p.X, p.Y);
+        bool overUi = overPopup || WindowPlacement.ContainsCursor(_overlay, p.X, p.Y);
+
+        // The popup lives only while the cursor is on its word or inside it (or it's pinned).
+        if (_popup.IsVisible && !_popup.IsPinned && !overPopup && !_popup.Anchor.Contains(p.X, p.Y, 2))
+            _popup.HidePopup();
         bool inZone = overUi || (foreground && Box.SubtitleZone(bounds!.Value).Contains(p.X, p.Y));
 
         if (_logic.IsPaused && !overUi && now > _ignoreInputUntil &&
